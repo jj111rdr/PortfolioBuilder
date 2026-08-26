@@ -1,8 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using Portfolio_Builder.Data;
 using Scalar.AspNetCore;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
+using Portfolio_Builder.Entities.Data;
+using Portfolio_Builder.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +12,8 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
 
 var app = builder.Build();
 

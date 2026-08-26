@@ -4,7 +4,7 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
 
-namespace Portfolio_Builder.Model;
+namespace Portfolio_Builder.Entities.Models;
 
 [Index("Email", Name = "UQ_Users_Email", IsUnique = true)]
 [Index("Username", Name = "UQ_Users_Username", IsUnique = true)]
