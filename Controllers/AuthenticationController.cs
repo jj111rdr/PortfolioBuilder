@@ -32,6 +32,7 @@ public class AuthenticationController(IAuthenticationService authenticationServi
         return Ok(tokenResponse);
     }
 
+    [AllowAnonymous]
     [HttpPost("refresh-token")]
     public async Task<ActionResult<TokenResponseDto>> RefreshToken(RefreshTokenRequestDto request)
     {

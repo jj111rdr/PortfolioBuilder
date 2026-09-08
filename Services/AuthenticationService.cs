@@ -4,30 +4,51 @@ using Microsoft.IdentityModel.Tokens;
 using Portfolio_Builder.Entities.Data;
 using Portfolio_Builder.Entities.DTOs;
 using Portfolio_Builder.Entities.Models;
-using System.Security.Claims;
-using System.Text;
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Portfolio_Builder.Services;
 
 public class AuthenticationService(AppDbContext context, IConfiguration configuration) : IAuthenticationService
 {
-    public async Task<CreateUserResult> CreateUserAsync(CreateUserDto createUserDto)
+    public async Task<CreateUserResultDto> CreateUserAsync(CreateUserDto createUserDto)
     {
         // Both Username and Email are unique. Check each so we can tell the
         // user exactly which one is taken. (Comparison is case-insensitive
         // because of the default SQL Server collation.)
         if (await context.Users.AnyAsync(u => u.Username == createUserDto.Username))
         {
-            return CreateUserResult.Fail("This username is already taken.");
+            return CreateUserResultDto.Fail("This username is already taken.");
         }
 
         if (await context.Users.AnyAsync(u => u.Email == createUserDto.Email))
         {
-            return CreateUserResult.Fail("This email is already registered.");
+            return CreateUserResultDto.Fail("This email is already registered.");
         }
-
+        if(!IsValidDate(createUserDto.DateOfBirth.ToString("yyyy-MM-dd")))
+        {
+            return CreateUserResultDto.Fail("Invalid date of birth format. Please use YYYY-MM-DD.");
+        }
+        if (createUserDto.DateOfBirth > DateOnly.FromDateTime(DateTime.UtcNow))
+        {
+            return CreateUserResultDto.Fail("Date of birth cannot be in the future.");
+        }
+        if (!Regex.IsMatch(createUserDto.Username, @"^(?=.{1,39}$)(?!-)(?!.*--)(?!.*-$)[A-Za-z0-9-]+$"))
+        {
+            return CreateUserResultDto.Fail("Invalid username format.");
+        }
+        if (!IsValidPassword(createUserDto.Password))
+        {
+            return CreateUserResultDto.Fail("Password must be at least 8 characters long and contain an uppercase, a lowercase, a digit, and a special character.");
+        }
+        if(await IsPasswordCompromisedAsync(createUserDto.Password))
+        {
+            return CreateUserResultDto.Fail("This is a very common password. Please choose a different password.");
+        }
         var newUser = new User
         {
             FirstName = createUserDto.FirstName,
@@ -45,7 +66,7 @@ public class AuthenticationService(AppDbContext context, IConfiguration configur
         context.Users.Add(newUser);
         await context.SaveChangesAsync();
 
-        return CreateUserResult.Success(newUser);
+        return CreateUserResultDto.Success(newUser);
     }
     public async Task<TokenResponseDto?> AuthenticateAndLoginUserAsync(LoginUserDto loginUserDto)
     {
@@ -123,5 +144,61 @@ public class AuthenticationService(AppDbContext context, IConfiguration configur
             AccessToken = token,
             RefreshToken = newRefreshToken
         };
+    }
+    private static bool IsValidDate(string date)
+    {
+        return DateTime.TryParseExact(
+            date,
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out _
+        );
+    }
+    private static bool IsValidPassword(string password)
+    {
+        return !string.IsNullOrEmpty(password)
+            && password.Length >= 8
+            && Regex.IsMatch(password, @"[A-Z]")
+            && Regex.IsMatch(password, @"[a-z]")
+            && Regex.IsMatch(password, @"\d")
+            && Regex.IsMatch(password, @"[^A-Za-z0-9]");
+    }
+    private async Task<bool> IsPasswordCompromisedAsync(string password)
+    {
+        using var sha1 = SHA1.Create();
+
+        byte[] hashBytes = sha1.ComputeHash(
+            Encoding.UTF8.GetBytes(password)
+        );
+
+        string hash = Convert.ToHexString(hashBytes);
+
+        string prefix = hash[..5];
+        string suffix = hash[5..];
+
+        using var client = new HttpClient();
+
+        client.DefaultRequestHeaders.Add(
+            "Add-Padding",
+            "true"
+        );
+
+        string response = await client.GetStringAsync(
+            $"https://api.pwnedpasswords.com/range/{prefix}"
+        );
+
+        foreach (string line in response.Split('\n'))
+        {
+            var parts = line.Trim().Split(':');
+
+            if (parts.Length == 2 &&
+                parts[0].Equals(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
